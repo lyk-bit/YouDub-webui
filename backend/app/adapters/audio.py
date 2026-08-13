@@ -7,6 +7,8 @@ import numpy as np
 import soundfile as sf
 from pydub import AudioSegment
 
+from ..audio_mode import is_original_audio
+
 BASE_FACTOR_MIN = 0.8
 BASE_FACTOR_MAX = 1.2
 BASE_FACTOR_SAFETY = 0.99
@@ -45,11 +47,6 @@ def _load_audio(file: Path) -> tuple[np.ndarray, int]:
     return librosa.load(str(file), sr=None)
 
 
-def _is_original_audio_item(item: dict) -> bool:
-    text = item.get("dst") or item.get("zh", "")
-    return isinstance(text, str) and not text.strip()
-
-
 def _resample(y: np.ndarray, source_rate: int, target_rate: int) -> np.ndarray:
     if source_rate == target_rate:
         return y
@@ -62,6 +59,8 @@ def _base_speed_factor(translation: list[dict], tts_files: list[Path]) -> float:
     cur_total = 0.0
     des_total = 0.0
     for segment, tts_file in zip(translation, tts_files):
+        if is_original_audio(segment):
+            continue
         dur, _ = _audio_duration(tts_file)
         cur_total += dur
         des_total += max(0.0, (segment["end_time"] - segment["start_time"]) / 1000.0)
@@ -126,15 +125,14 @@ def merge_tts_audio(translation_file: Path, tts_dir: Path, session: Path) -> tup
                 [final_audio, _silence((real_start_ms - last_end_ms) / 1000.0, sample_rate)]
             )
 
-        if _is_original_audio_item(segment):
+        if is_original_audio(segment):
             y, source_rate = _load_audio(tts_file)
             y = _resample(y, source_rate, sample_rate)
-            offset = max(0, int(round((real_start_ms - segment["start_time"]) * sample_rate / 1000)))
             desired_samples = max(
                 0,
-                int(round((segment["end_time"] - real_start_ms) * sample_rate / 1000)),
+                int(round((segment["end_time"] - segment["start_time"]) * sample_rate / 1000)),
             )
-            y = y[offset:offset + desired_samples]
+            y = y[:desired_samples]
             real_end_ms = real_start_ms + len(y) / sample_rate * 1000.0
         else:
             current_sec, _ = _audio_duration(tts_file)
