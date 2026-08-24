@@ -252,6 +252,8 @@ Common environment variables:
 | `YOUDUB_AUTH_COOKIE_SAMESITE` | Session Cookie SameSite policy: `lax` or `strict`; `strict` is recommended with the same-origin proxy. |
 | `DEVICE` | Model runtime device, for example `auto`, `cuda`, `cuda:0`, `mps`, `mps:0`, or `cpu`; `auto` selects CUDA, then MPS, then CPU. |
 | `DEMUCS_DEVICE` / `WHISPER_DEVICE` | Optional component-level device overrides. Empty values use `DEVICE`. Whisper falls back to CPU when MPS is selected because word timestamp alignment depends on float64 DTW, which MPS does not support. |
+| `KOTOBA_WHISPER_MODEL` | Kotoba-Whisper Hugging Face model used for Japanese ASR (`Japanese -> Chinese` tasks), default `kotoba-tech/kotoba-whisper-v2.0`; loaded through transformers and cached under `MODEL_CACHE_DIR/huggingface`. Set to `off` (or `none`/`0`) to fall back to `WHISPER_MODEL` openai-whisper for Japanese. The first download is about 3 GiB; set `HF_ENDPOINT=https://hf-mirror.com` in `.env` when huggingface.co is slow. |
+| `KOTOBA_WHISPER_BATCH_SIZE` | Chunked-inference batch size for Kotoba-Whisper long audio, default `16`; lower it when GPU memory is tight. |
 | `DEMUCS_CHUNK_SECONDS` | Window length for source separation. Default: `600` (10 minutes). Demucs memory scales with the window rather than the video length, at roughly **0.28 GiB per minute** (the model bag and shifts each hold a full copy). Keep the default on 16 GB machines; lower it when memory is tight, raise it to reduce the number of seams. |
 | `OPENAI_BASE_URL` | OpenAI-compatible API endpoint, for example `https://api.openai.com/v1`. |
 | `OPENAI_API_KEY` | API key used by the translation stage. |
@@ -363,7 +365,7 @@ Only process videos you have the right to download, transform, and publish.
 YouTube / Bilibili URL
   -> yt-dlp downloads one video
   -> Demucs separates vocals and background audio
-  -> Whisper transcribes speech with word timestamps
+  -> Whisper transcribes speech with word timestamps (Japanese tasks use Kotoba-Whisper by default)
   -> Sentence and timing normalization
   -> OpenAI-compatible API preprocesses the full transcript and translates sentences in parallel
   -> Branch by output content:
