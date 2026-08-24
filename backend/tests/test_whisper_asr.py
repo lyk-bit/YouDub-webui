@@ -138,6 +138,47 @@ def _fake_audio_length(monkeypatch, duration_ms: int) -> None:
     monkeypatch.setattr(whisper_asr.AudioSegment, "from_file", lambda _path: FakeAudio())
 
 
+def test_convert_chunks_keeps_gaps_between_chunks():
+    chunks = [
+        {"text": "おはようございます。", "timestamp": (0.0, 5.0)},
+        {"text": "ありがとうございます。", "timestamp": (20.0, 25.0)},
+    ]
+
+    utterances = whisper_asr._convert_chunks(chunks, 25000)
+
+    assert [(u["start_time"], u["end_time"]) for u in utterances] == [
+        (0, 5000),
+        (20000, 25000),
+    ]
+
+
+def test_convert_chunks_clamps_open_ended_midstream_chunk_to_next_start():
+    # A mid-stream open-ended chunk must not extend to the full duration,
+    # which would swallow the 5-10s gap and the 65-90s tail that
+    # merge_audio backfills with original non-speech vocals.
+    chunks = [
+        {"text": "こんにちは。", "timestamp": (0.0, 5.0)},
+        {"text": "さようなら。", "timestamp": (10.0, None)},
+        {"text": "また明日。", "timestamp": (60.0, 65.0)},
+    ]
+
+    utterances = whisper_asr._convert_chunks(chunks, 90000)
+
+    assert [(u["start_time"], u["end_time"]) for u in utterances] == [
+        (0, 5000),
+        (10000, 60000),
+        (60000, 65000),
+    ]
+
+
+def test_convert_chunks_last_open_chunk_extends_to_audio_duration():
+    chunks = [{"text": "最後のセグメントです。", "timestamp": (55.0, None)}]
+
+    utterances = whisper_asr._convert_chunks(chunks, 90000)
+
+    assert [(u["start_time"], u["end_time"]) for u in utterances] == [(55000, 90000)]
+
+
 def test_recognize_speech_japanese_uses_kotoba_pipeline(monkeypatch, tmp_path):
     calls: list[dict] = []
 

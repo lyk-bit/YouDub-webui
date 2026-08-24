@@ -162,13 +162,28 @@ def _convert_segments(segments: list) -> list:
 
 def _convert_chunks(chunks: list, duration_ms: int) -> list:
     utterances = []
-    for chunk in chunks or []:
+    for index, chunk in enumerate(chunks or []):
         text = str(chunk.get("text", "")).strip()
         timestamp = chunk.get("timestamp") or (None, None)
         start, end = timestamp[0], timestamp[1]
         if not text or start is None:
             continue
-        end_ms = duration_ms if end is None else _to_ms(end)
+        if end is None:
+            # An open-ended timestamp means "until the end of the audio", but a
+            # mid-stream chunk must never extend to the full duration: that
+            # would swallow the later gaps that merge_audio backfills with
+            # original non-speech vocals. Clamp it to the next chunk's start.
+            next_timestamp = (
+                chunks[index + 1].get("timestamp") if index + 1 < len(chunks) else None
+            )
+            next_start = next_timestamp[0] if next_timestamp else None
+            end_ms = (
+                min(_to_ms(next_start), duration_ms)
+                if next_start is not None
+                else duration_ms
+            )
+        else:
+            end_ms = _to_ms(end)
         if end_ms <= _to_ms(start):
             continue
         utterances.append(

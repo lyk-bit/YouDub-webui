@@ -375,6 +375,8 @@ YouTube / Bilibili URL
   -> FFmpeg renders the final mp4
 ```
 
+In dubbing modes, non-speech vocals between speech segments (laughter, sighs, moans — anything Whisper does not transcribe) are backfilled from the separated vocal track, so those moments no longer drop to voiceless silence; separation bleed below the energy gate stays silent.
+
 Local video uploads use the same later pipeline stages and support English or Japanese speech translated into Chinese, plus Chinese speech translated into English. If an already translated `.srt` file is uploaded with the video, YouDub converts the SRT into its internal timed translation format, skips Whisper and OpenAI translation, then continues according to the selected output content. In v1 this is limited to local video uploads with `.srt`; URL tasks cannot attach subtitle files.
 
 ## Highlights

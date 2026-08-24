@@ -16,6 +16,13 @@ LOCAL_FACTOR_MIN = 0.9
 LOCAL_FACTOR_MAX = 1.1
 SPEED_NOOP_EPSILON = 1e-2
 
+# Non-speech vocals (moans, laughter, breathing) fall between ASR segments.
+# Gaps are backfilled with the original vocal track so those sounds survive
+# dubbing, while anything quieter than this RMS level is treated as Demucs
+# separation bleed and stays silent.
+NON_SPEECH_RMS_MIN = 0.01
+GAP_FADE_SEC = 0.01
+
 
 def split_audio_by_translation(vocals_file: Path, translation_file: Path, session: Path) -> Path:
     output_dir = session / "segments" / "vocals"
@@ -95,7 +102,88 @@ def _silence(seconds: float, sample_rate: int) -> np.ndarray:
     return np.zeros(int(seconds * sample_rate), dtype=np.float32)
 
 
-def merge_tts_audio(translation_file: Path, tts_dir: Path, session: Path) -> tuple[Path, Path]:
+def _load_mono_audio(file: Path) -> tuple[np.ndarray, int]:
+    data, rate = sf.read(str(file), dtype="float32", always_2d=False)
+    if data.ndim == 2:
+        data = data.mean(axis=1, dtype=np.float32)
+    return data, rate
+
+
+def _uncovered_intervals(
+    translation: list[dict], start_ms: float, end_ms: float
+) -> list[tuple[float, float]]:
+    intervals: list[tuple[float, float]] = []
+    cursor = start_ms
+    for item in translation:
+        segment_start = float(item["start_time"])
+        segment_end = float(item["end_time"])
+        if segment_end <= cursor:
+            continue
+        if segment_start >= end_ms:
+            break
+        if segment_start > cursor:
+            intervals.append((cursor, min(segment_start, end_ms)))
+        cursor = max(cursor, segment_end)
+        if cursor >= end_ms:
+            break
+    if cursor < end_ms:
+        intervals.append((cursor, end_ms))
+    return intervals
+
+
+def _vocals_slice(
+    vocals: np.ndarray,
+    vocals_rate: int,
+    start_ms: float,
+    end_ms: float,
+    sample_rate: int,
+) -> np.ndarray | None:
+    start = int(start_ms * vocals_rate / 1000.0)
+    end = min(len(vocals), int(end_ms * vocals_rate / 1000.0))
+    if end <= start:
+        return None
+    y = _resample(vocals[start:end], vocals_rate, sample_rate).astype(np.float32)
+    if float(np.sqrt(np.mean(np.square(y)))) < NON_SPEECH_RMS_MIN:
+        return None
+    fade = min(int(GAP_FADE_SEC * sample_rate), len(y) // 2)
+    if fade > 0:
+        ramp = np.linspace(0.0, 1.0, fade, dtype=np.float32)
+        y[:fade] *= ramp
+        y[-fade:] *= ramp[::-1]
+    return y
+
+
+def _gap_audio(
+    vocals: np.ndarray | None,
+    vocals_rate: int,
+    translation: list[dict],
+    start_ms: float,
+    end_ms: float,
+    sample_rate: int,
+) -> tuple[np.ndarray, bool]:
+    gap = _silence((end_ms - start_ms) / 1000.0, sample_rate)
+    filled = False
+    if vocals is None or end_ms <= start_ms:
+        return gap, filled
+    for uncovered_start, uncovered_end in _uncovered_intervals(translation, start_ms, end_ms):
+        y = _vocals_slice(vocals, vocals_rate, uncovered_start, uncovered_end, sample_rate)
+        if y is None:
+            continue
+        offset = int((uncovered_start - start_ms) * sample_rate / 1000.0)
+        stop = min(len(gap), offset + len(y))
+        if stop > offset:
+            gap[offset:stop] = y[: stop - offset]
+            filled = True
+    return gap, filled
+
+
+def merge_tts_audio(
+    translation_file: Path,
+    tts_dir: Path,
+    session: Path,
+    *,
+    original_vocals_file: Path | None = None,
+) -> tuple[Path, Path]:
     dubbing_file = session / "tmp" / "audio_dubbing.wav"
     timings_file = session / "metadata" / "timings.json"
     cache_dir = session / "segments" / "stretched"
@@ -115,15 +203,21 @@ def merge_tts_audio(translation_file: Path, tts_dir: Path, session: Path) -> tup
     _, sample_rate = _audio_duration(tts_files[0])
     base = _base_speed_factor(translation, tts_files)
 
+    vocals: np.ndarray | None = None
+    vocals_rate = 0
+    if original_vocals_file is not None and original_vocals_file.exists():
+        vocals, vocals_rate = _load_mono_audio(original_vocals_file)
+
     final_audio = np.zeros(0, dtype=np.float32)
     last_end_ms = 0.0
     for segment, tts_file in zip(translation, tts_files):
         last_end_ms = final_audio.shape[0] / sample_rate * 1000.0
         real_start_ms = max(float(segment["start_time"]), last_end_ms)
         if real_start_ms > last_end_ms:
-            final_audio = np.concatenate(
-                [final_audio, _silence((real_start_ms - last_end_ms) / 1000.0, sample_rate)]
+            gap, _ = _gap_audio(
+                vocals, vocals_rate, translation, last_end_ms, real_start_ms, sample_rate
             )
+            final_audio = np.concatenate([final_audio, gap])
 
         if is_original_audio(segment):
             y, source_rate = _load_audio(tts_file)
@@ -147,6 +241,16 @@ def merge_tts_audio(translation_file: Path, tts_dir: Path, session: Path) -> tup
         final_audio = np.concatenate([final_audio, y])
         segment["actual_start_time"] = int(real_start_ms)
         segment["actual_end_time"] = int(real_end_ms)
+
+    if vocals is not None:
+        tail_start_ms = final_audio.shape[0] / sample_rate * 1000.0
+        vocals_end_ms = len(vocals) / vocals_rate * 1000.0
+        if vocals_end_ms > tail_start_ms:
+            tail, filled = _gap_audio(
+                vocals, vocals_rate, translation, tail_start_ms, vocals_end_ms, sample_rate
+            )
+            if filled:
+                final_audio = np.concatenate([final_audio, tail])
 
     sf.write(str(dubbing_file), final_audio, sample_rate)
     timings_file.write_text(
