@@ -64,6 +64,7 @@ class TaskCreate(BaseModel):
     url: str
     execution_mode: str = "auto"
     output_mode: str = "both"
+    direction: str = ""
 
 
 class ContinueTaskRequest(BaseModel):
@@ -329,23 +330,41 @@ def normalize_output_mode(value: str) -> str:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+DEFAULT_SOURCE_DIRECTIONS = {"youtube": "en-zh", "bilibili": "zh-en"}
+
+
 @app.post("/api/tasks", status_code=201)
 def create_task(payload: TaskCreate) -> dict:
     try:
         validated_url = validate_video_url(payload.url)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    requested_direction = payload.direction.strip()
+    if requested_direction and requested_direction not in LOCAL_UPLOAD_DIRECTIONS:
+        raise HTTPException(status_code=422, detail="Unsupported video direction.")
+    default_direction = DEFAULT_SOURCE_DIRECTIONS[validated_url.source]
+    direction = requested_direction or default_direction
     normalized_execution_mode = normalize_execution_mode(payload.execution_mode)
     normalized_output_mode = normalize_output_mode(payload.output_mode)
 
-    existing_id = database.find_task_by_video_id(validated_url.video_id)
+    task_id = validated_url.video_id
+    stored_url = validated_url.url
+    if direction != default_direction:
+        task_id = f"{validated_url.video_id}-{direction}"
+        separator = "&" if "?" in stored_url else "?"
+        stored_url = f"{stored_url}{separator}direction={direction}"
+
+    existing_id = database.find_task_by_video_id(
+        validated_url.video_id,
+        "" if direction == default_direction else direction,
+    )
     if existing_id:
         return database.get_task(existing_id)
 
     _ensure_runtime_ready()
-    task_id = database.create_task(
-        validated_url.url,
-        task_id=validated_url.video_id,
+    database.create_task(
+        stored_url,
+        task_id=task_id,
         execution_mode=normalized_execution_mode,
         output_mode=normalized_output_mode,
     )

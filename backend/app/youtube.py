@@ -142,11 +142,14 @@ def local_upload_task_id(url: str) -> str:
     return candidate
 
 
+def url_direction(url: str) -> str:
+    return parse_qs(urlparse(url.strip()).query).get("direction", [""])[0]
+
+
 def local_upload_direction(url: str) -> str:
-    parsed = urlparse(url.strip())
     if not local_upload_task_id(url):
         return ""
-    return parse_qs(parsed.query).get("direction", [""])[0]
+    return url_direction(url)
 
 
 def is_local_upload_url(url: str) -> bool:

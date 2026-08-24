@@ -186,7 +186,7 @@ describe("任务输出选择", () => {
     )
 
     await user.type(
-      screen.getByLabelText("YouTube 链接（英文 -> 中文）"),
+      screen.getByLabelText("YouTube 链接"),
       "https://www.youtube.com/watch?v=abcdefghijk",
     )
     await user.click(screen.getByLabelText("输出内容"))
@@ -200,6 +200,63 @@ describe("任务输出选择", () => {
     expect(JSON.parse(String(createCall?.[1]?.body))).toMatchObject({
       execution_mode: "auto",
       output_mode: "subtitles",
+    })
+  })
+
+  it("可为 Bilibili 链接选择日译中并以 ja-zh 方向提交", async () => {
+    mocks.fetch.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input)
+      if (path === "/api/tasks" && init?.method === "POST") {
+        return new Response(JSON.stringify({ id: "BV1xx411c7mD-ja-zh" }), {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        })
+      }
+      if (path.startsWith("/api/tasks")) {
+        return new Response(JSON.stringify({
+          tasks: [],
+          total: 0,
+          active_count: 0,
+          page: 1,
+          page_size: 20,
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      }
+      throw new Error(`未预期的请求: ${path}`)
+    })
+    vi.stubGlobal("fetch", mocks.fetch)
+
+    const user = userEvent.setup()
+    render(
+      <LanguageProvider>
+        <Home />
+      </LanguageProvider>,
+    )
+
+    await user.type(
+      screen.getByLabelText("Bilibili 链接"),
+      "https://www.bilibili.com/video/BV1xx411c7mD",
+    )
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("翻译方向")).toHaveTextContent("中文 -> 英文")
+    })
+
+    await user.click(screen.getByLabelText("翻译方向"))
+    await user.click(await screen.findByRole("option", { name: "日文 -> 中文" }))
+    await user.click(screen.getByRole("button", { name: "创建任务" }))
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/tasks/BV1xx411c7mD-ja-zh"))
+    const createCall = mocks.fetch.mock.calls.find(
+      ([input, init]) => String(input) === "/api/tasks" && init?.method === "POST",
+    )
+    expect(JSON.parse(String(createCall?.[1]?.body))).toMatchObject({
+      url: "https://www.bilibili.com/video/BV1xx411c7mD",
+      direction: "ja-zh",
+      execution_mode: "auto",
+      output_mode: "both",
     })
   })
 })

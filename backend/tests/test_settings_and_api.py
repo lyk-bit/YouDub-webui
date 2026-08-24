@@ -163,6 +163,64 @@ def test_task_id_is_video_id_and_dedupes_existing(monkeypatch, tmp_path):
     assert enqueued == ["abcdefghijk"]
 
 
+def test_create_task_with_non_default_direction_appends_direction(monkeypatch, tmp_path):
+    configure_tmp_runtime(monkeypatch, tmp_path)
+    enqueued: list[str] = []
+    monkeypatch.setattr(main.worker, "enqueue", lambda task_id: enqueued.append(task_id))
+    client = authenticated_client()
+
+    response = client.post(
+        "/api/tasks",
+        json={
+            "url": "https://www.bilibili.com/video/BV1xx411c7mD",
+            "direction": "ja-zh",
+        },
+    )
+
+    assert response.status_code == 201
+    task = response.json()
+    assert task["id"] == "BV1xx411c7mD-ja-zh"
+    assert "direction=ja-zh" in task["url"]
+    source = detect_source(task["url"])
+    assert source.name == "bilibili"
+    assert source.asr_language == "ja"
+    assert source.target_language == "zh"
+    assert enqueued == [task["id"]]
+
+
+def test_create_task_non_default_direction_creates_separate_task(monkeypatch, tmp_path):
+    configure_tmp_runtime(monkeypatch, tmp_path)
+    enqueued: list[str] = []
+    monkeypatch.setattr(main.worker, "enqueue", lambda task_id: enqueued.append(task_id))
+    client = authenticated_client()
+    url = "https://www.youtube.com/watch?v=abcdefghijk"
+
+    default_task = client.post("/api/tasks", json={"url": url})
+    ja_task = client.post("/api/tasks", json={"url": url, "direction": "ja-zh"})
+    repeat_ja_task = client.post("/api/tasks", json={"url": url, "direction": "ja-zh"})
+
+    assert default_task.status_code == 201
+    assert ja_task.status_code == 201
+    assert repeat_ja_task.status_code == 201
+    assert default_task.json()["id"] == "abcdefghijk"
+    assert "direction=" not in default_task.json()["url"]
+    assert ja_task.json()["id"] == "abcdefghijk-ja-zh"
+    assert repeat_ja_task.json()["id"] == "abcdefghijk-ja-zh"
+    assert enqueued == ["abcdefghijk", "abcdefghijk-ja-zh"]
+
+
+def test_create_task_rejects_invalid_direction(monkeypatch, tmp_path):
+    configure_tmp_runtime(monkeypatch, tmp_path)
+    client = authenticated_client()
+
+    response = client.post(
+        "/api/tasks",
+        json={"url": "https://www.youtube.com/watch?v=abcdefghijk", "direction": "fr-zh"},
+    )
+
+    assert response.status_code == 422
+
+
 def test_create_task_persists_selected_output_mode(monkeypatch, tmp_path):
     configure_tmp_runtime(monkeypatch, tmp_path)
     enqueued: list[str] = []

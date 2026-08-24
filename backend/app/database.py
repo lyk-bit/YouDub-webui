@@ -314,13 +314,20 @@ def create_task(
     return new_id
 
 
-def find_task_by_video_id(video_id: str) -> str | None:
+def find_task_by_video_id(video_id: str, direction: str = "") -> str | None:
     with connect() as conn:
-        row = conn.execute(
-            "SELECT id FROM tasks WHERE id = ? OR url LIKE ? "
-            "ORDER BY created_at DESC, rowid DESC LIMIT 1",
-            (video_id, f"%{video_id}%"),
-        ).fetchone()
+        if direction:
+            row = conn.execute(
+                "SELECT id FROM tasks WHERE id = ? OR (url LIKE ? AND url LIKE ?) "
+                "ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                (f"{video_id}-{direction}", f"%{video_id}%", f"%direction={direction}%"),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT id FROM tasks WHERE (id = ? OR url LIKE ?) AND url NOT LIKE ? "
+                "ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                (video_id, f"%{video_id}%", "%direction=%"),
+            ).fetchone()
     return row["id"] if row else None
 
 

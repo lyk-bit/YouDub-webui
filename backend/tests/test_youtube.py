@@ -12,6 +12,7 @@ from backend.app.youtube import (
     is_youtube_url,
     local_upload_direction,
     local_upload_task_id,
+    url_direction,
     validate_video_url,
 )
 
@@ -155,6 +156,12 @@ def test_local_upload_helpers_parse_direction_and_task_id():
     assert is_local_upload_url(url)
     assert is_local_zh_to_en_url(url)
     assert not is_local_en_to_zh_url(url)
+
+
+def test_url_direction_reads_direction_query_param():
+    assert url_direction("https://www.bilibili.com/video/BV1xx411c7mD?direction=ja-zh") == "ja-zh"
+    assert url_direction("https://www.youtube.com/watch?v=abcdefghijk&direction=zh-en") == "zh-en"
+    assert url_direction("https://www.youtube.com/watch?v=abcdefghijk") == ""
 
 
 def test_local_upload_helpers_accept_japanese_to_chinese():

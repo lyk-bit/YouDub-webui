@@ -12,7 +12,7 @@ An open-source video localization tool proven in a real creator workflow.
 
 YouDub WebUI turns a YouTube, Bilibili, or local video into a target-language version. It downloads or imports the source, transcribes and translates it, then adds subtitles, generates translated voiceover, or does both according to the task's output selection. The final video can be played or downloaded from the web UI.
 
-The most mature path is **YouTube English -> Chinese dubbing**. The app also supports **Bilibili Chinese -> English dubbing** and **local-video Japanese -> Chinese dubbing** through the same task pipeline.
+The most mature path is **YouTube English -> Chinese dubbing**. YouTube links, Bilibili links, and local videos can all choose among the `English -> Chinese`, `Japanese -> Chinese`, and `Chinese -> English` directions per task (defaults: English -> Chinese for YouTube, Chinese -> English for Bilibili).
 
 中文 README: [README.md](README.md)
 
@@ -341,7 +341,7 @@ On Windows, `chmod` and `umask` are not substitutes for NTFS ACLs. Restrict the 
 8. Return to the home page and submit a YouTube URL, Bilibili URL, or local video.
    - Under `Output content`, choose `Subtitles only`, `Translated voice only`, or `Subtitles and translated voice`. Subtitle-only output preserves the original audio and skips dubbing; voice-only output does not burn subtitles.
    - Local videos can include an already translated `.srt` file. When provided, YouDub skips Whisper and OpenAI translation, then uses that file according to the selected output content.
-   - Local videos support `English -> Chinese`, `Japanese -> Chinese`, and `Chinese -> English`. The direction also determines the optional subtitle's target language; for example, `Japanese -> Chinese` treats the uploaded SRT as Chinese subtitles.
+   - All three sources can pick `English -> Chinese`, `Japanese -> Chinese`, or `Chinese -> English` under `Translation direction`; without a manual choice the per-source default applies (English -> Chinese for YouTube, Chinese -> English for Bilibili). For local videos the direction also determines the optional subtitle's target language; for example, `Japanese -> Chinese` treats the uploaded SRT as Chinese subtitles.
 9. Open the task detail page to watch stage progress, logs, and the final video.
 
 API keys and cookies are masked in the UI. The backend does not return plaintext cookie content to the frontend.
@@ -378,7 +378,7 @@ Local video uploads use the same later pipeline stages and support English or Ja
 ## Highlights
 
 - **Real end-to-end workflow**: URL in, final video out. No manual audio slicing, subtitle editing, or video rendering steps.
-- **Multiple translation paths**: YouTube English -> Chinese is the primary mature workflow; Bilibili Chinese -> English and local-video Japanese -> Chinese use the same task pipeline.
+- **Multiple translation paths**: YouTube English -> Chinese is the primary mature workflow; YouTube/Bilibili links and local videos all let you choose among `English -> Chinese`, `Japanese -> Chinese`, and `Chinese -> English` through the same task pipeline.
 - **Selectable output**: Before a task starts, choose subtitles only, translated voice only, or both.
 - **Local-first storage**: SQLite state, cookies, logs, intermediate artifacts, and final videos stay on your machine.
 - **Observable task progress**: Task history, stage status, stage duration, logs, and errors are visible in the web UI.

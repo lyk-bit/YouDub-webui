@@ -294,12 +294,18 @@ export function redoStage(taskId: string, stageName: string) {
 
 export function createTask(
   url: string,
+  direction: LocalDirection = "en-zh",
   executionMode: ExecutionMode = "auto",
   outputMode: OutputMode = "both",
 ) {
   return request<Task>("/api/tasks", {
     method: "POST",
-    body: JSON.stringify({ url, execution_mode: executionMode, output_mode: outputMode }),
+    body: JSON.stringify({
+      url,
+      direction,
+      execution_mode: executionMode,
+      output_mode: outputMode,
+    }),
   })
 }
 

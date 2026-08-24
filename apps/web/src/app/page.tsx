@@ -92,7 +92,7 @@ export default function Home() {
   const [bilibiliUrl, setBilibiliUrl] = useState("")
   const [localFile, setLocalFile] = useState<File | null>(null)
   const [localSubtitleFile, setLocalSubtitleFile] = useState<File | null>(null)
-  const [localDirection, setLocalDirection] = useState<LocalDirection>("en-zh")
+  const [directionChoice, setDirectionChoice] = useState<LocalDirection | null>(null)
   const [executionMode, setExecutionMode] = useState<ExecutionMode>("auto")
   const [outputMode, setOutputMode] = useState<OutputMode>("both")
   const [tasks, setTasks] = useState<TaskSummary[]>([])
@@ -108,7 +108,7 @@ export default function Home() {
   const [taskListError, setTaskListError] = useState("")
   const [submitting, setSubmitting] = useState(false)
 
-  const localDirectionOptions: { value: LocalDirection; label: string }[] = [
+  const directionOptions: { value: LocalDirection; label: string }[] = [
     { value: "en-zh", label: t.home.localEnZh },
     { value: "ja-zh", label: t.home.localJaZh },
     { value: "zh-en", label: t.home.localZhEn },
@@ -229,12 +229,12 @@ export default function Home() {
       const created = localFile
         ? await uploadLocalTask(
           localFile,
-          localDirection,
+          direction,
           localSubtitleFile,
           executionMode,
           outputMode,
         )
-        : await createTask(submittedUrl, executionMode, outputMode)
+        : await createTask(submittedUrl, direction, executionMode, outputMode)
       setYoutubeUrl("")
       setBilibiliUrl("")
       setLocalFile(null)
@@ -252,6 +252,10 @@ export default function Home() {
       setSubmitting(false)
     }
   }
+
+  const remoteSource = youtubeUrl.trim() ? "youtube" : bilibiliUrl.trim() ? "bilibili" : null
+  const direction: LocalDirection =
+    directionChoice ?? (remoteSource === "bilibili" ? "zh-en" : "en-zh")
 
   const hasUrl = Boolean(youtubeUrl.trim() || bilibiliUrl.trim())
   const hasLocalFile = Boolean(localFile)
@@ -293,39 +297,16 @@ export default function Home() {
                   disabled={Boolean(youtubeUrl.trim()) || hasLocalFile}
                 />
               </div>
-              <div className="grid gap-3 sm:grid-cols-[1fr_180px]">
-                <div className="space-y-2">
-                  <Label htmlFor="local-video">{t.home.localVideoLabel}</Label>
-                  <Input
-                    ref={fileInputRef}
-                    id="local-video"
-                    type="file"
-                    accept={LOCAL_VIDEO_ACCEPT}
-                    onChange={selectLocalFile}
-                    disabled={hasUrl}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="local-direction">{t.home.localDirectionLabel}</Label>
-                  <Select
-                    value={localDirection}
-                    onValueChange={(value) => setLocalDirection(value as LocalDirection)}
-                    disabled={hasUrl}
-                  >
-                    <SelectTrigger id="local-direction" className="h-10">
-                      <span className="min-w-0 truncate text-left">
-                        {selectedLabel(localDirectionOptions, localDirection)}
-                      </span>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {localDirectionOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="local-video">{t.home.localVideoLabel}</Label>
+                <Input
+                  ref={fileInputRef}
+                  id="local-video"
+                  type="file"
+                  accept={LOCAL_VIDEO_ACCEPT}
+                  onChange={selectLocalFile}
+                  disabled={hasUrl}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="local-subtitle">{t.home.localSubtitleLabel}</Label>
@@ -358,7 +339,27 @@ export default function Home() {
                   </div>
                 ) : null}
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="direction">{t.home.localDirectionLabel}</Label>
+                  <Select
+                    value={direction}
+                    onValueChange={(value) => setDirectionChoice(value as LocalDirection)}
+                  >
+                    <SelectTrigger id="direction" className="h-10">
+                      <span className="min-w-0 truncate text-left">
+                        {selectedLabel(directionOptions, direction)}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {directionOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="space-y-2">
                   <Label htmlFor="output-mode">{t.home.outputModeLabel}</Label>
                   <Select

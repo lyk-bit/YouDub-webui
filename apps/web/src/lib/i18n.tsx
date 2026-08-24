@@ -40,8 +40,8 @@ const messages: Record<UiLanguage, Messages> = {
     },
     home: {
       createTitle: "Create new task",
-      youtubeLabel: "YouTube URL (English -> Chinese)",
-      bilibiliLabel: "Bilibili URL (Chinese -> English)",
+      youtubeLabel: "YouTube URL",
+      bilibiliLabel: "Bilibili URL",
       localVideoLabel: "Local video file",
       localSubtitleLabel: "Translated SRT subtitles (optional)",
       localSubtitleHelp: "When provided, the SRT supplies translated text and timing, and Whisper/OpenAI translation are skipped.",
@@ -228,8 +228,8 @@ const messages: Record<UiLanguage, Messages> = {
     },
     home: {
       createTitle: "新建任务",
-      youtubeLabel: "YouTube 链接（英文 -> 中文）",
-      bilibiliLabel: "Bilibili 链接（中文 -> 英文）",
+      youtubeLabel: "YouTube 链接",
+      bilibiliLabel: "Bilibili 链接",
       localVideoLabel: "本地视频文件",
       localSubtitleLabel: "已翻译 SRT 字幕（可选）",
       localSubtitleHelp: "上传后会提供翻译文本和时间轴，并跳过 Whisper 识别与 OpenAI 翻译。",
