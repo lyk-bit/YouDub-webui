@@ -25,6 +25,7 @@ PREPROCESS_RETRY = 2
 TRANSLATE_RETRY = 2
 DESCRIPTION_LIMIT = 500
 DEFAULT_CONCURRENCY = 50
+CONTEXT_WINDOW = 2
 
 
 class HotwordItem(BaseModel):
@@ -172,17 +173,33 @@ def _post_process(text: str, target_language: str) -> str:
     return cleaned
 
 
+def _user_message(text: str, prev_sentences: list[str], next_sentences: list[str]) -> str:
+    """构造带邻句上下文的 user 消息；无上下文时直接返回原文。"""
+    if not prev_sentences and not next_sentences:
+        return text
+    lines = ["# 上下文（仅供参考，不要翻译，不要输出）"]
+    if prev_sentences:
+        lines.append("[前文]\n" + "\n".join(prev_sentences))
+    if next_sentences:
+        lines.append("[后文]\n" + "\n".join(next_sentences))
+    lines.append("# 待翻译（只翻译这一句）\n" + text)
+    return "\n\n".join(lines)
+
+
 def translate_sentence(
     text: str,
     target_language: str,
     client: OpenAI,
     model: str,
     system: str,
+    prev_sentences: list[str] | None = None,
+    next_sentences: list[str] | None = None,
 ) -> TranslationItem:
     last_error: Exception | None = None
+    user = _user_message(text, prev_sentences or [], next_sentences or [])
     for attempt in range(TRANSLATE_RETRY):
         try:
-            data = _call_json(client, model, system, text)
+            data = _call_json(client, model, system, user)
             item = TranslationItem.model_validate(data)
             return item.model_copy(update={"dst": _post_process(item.dst, target_language)})
         except (json.JSONDecodeError, ValidationError, ValueError) as exc:
@@ -210,10 +227,20 @@ def translate_batch(
         "translate_batch: %d sentences, concurrency=%d", len(texts), concurrency,
     )
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
-        return list(pool.map(
-            lambda t: translate_sentence(t, source.target_language, client, model, system),
-            texts,
-        ))
+        futures = [
+            pool.submit(
+                translate_sentence,
+                text,
+                source.target_language,
+                client,
+                model,
+                system,
+                texts[max(0, idx - CONTEXT_WINDOW):idx],
+                texts[idx + 1:idx + 1 + CONTEXT_WINDOW],
+            )
+            for idx, text in enumerate(texts)
+        ]
+        return [future.result() for future in futures]
 
 
 def _read_meta(session: Path) -> dict[str, Any]:
