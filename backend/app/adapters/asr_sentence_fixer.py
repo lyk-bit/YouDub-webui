@@ -1,7 +1,84 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
+
+# 日语重分句参数：相邻 chunk 间隔超过该值视为不同话语，不合并；
+# 合并段总时长超过该值强制截断，防止 ASR 无句读时无限合并。
+_JA_MAX_MERGE_GAP_MS = 1200
+_JA_MAX_MERGE_SPAN_MS = 30000
+
+# 日语句末完结判定：命中任意一条即视为完整句，不与下一片段合并。
+# 覆盖句末标点、敬体（です/ます系）、断定（だ系）、过去（た系）、
+# 常见终止形词尾（う段假名/る/い）以及终助词。
+_JA_COMPLETE_RE = re.compile(
+    r"[。．！？!?…」』）)]\s*$"
+    r"|(?:ました|ません|でした|でしょう|ましょう|でしょ|じゃん)$"
+    r"|(?:です|ます)(?:か|ね|よ|な|わ)?$"
+    r"|だ(?:った|ろう|よ|ね|な|ぞ|わ|けど)?$"
+    r"|た(?:の?だ|ん|よ|ね|な)?$"
+    r"|(?:ない|たい|られる|させる|せる|れる)$"
+    r"|[うくぐすつぬぶむるい]$"
+    r"|[かよねなわぞさも]$"
+)
+
+# 句末标点后的零宽切分点；后瞻确保连续标点（如「？！」）不被拆开。
+_JA_SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？!?…])(?=[^。！？!?…])")
+
+
+def _ja_complete(text: str) -> bool:
+    return bool(_JA_COMPLETE_RE.search(text))
+
+
+def _merge_japanese_chunks(utts: list, max_gap_ms: int, max_span_ms: int) -> list:
+    merged: list[dict] = []
+    for utt in utts:
+        if merged:
+            prev = merged[-1]
+            gap = utt["start_time"] - prev["end_time"]
+            span = utt["end_time"] - prev["start_time"]
+            # 前一段以未完结形态收尾（如名词、助词、て形结尾）且时间上连续，则并入
+            if not _ja_complete(prev["text"]) and gap <= max_gap_ms and span <= max_span_ms:
+                prev["text"] += utt["text"]
+                prev["end_time"] = utt["end_time"]
+                continue
+        merged.append(dict(utt))
+    return merged
+
+
+def _split_japanese_sentences(seg: dict) -> list:
+    pieces = [p for p in _JA_SENTENCE_SPLIT_RE.split(seg["text"]) if p]
+    if len(pieces) <= 1:
+        return [seg]
+
+    total_chars = sum(len(p) for p in pieces)
+    span = seg["end_time"] - seg["start_time"]
+    out: list[dict] = []
+    cursor = seg["start_time"]
+    consumed = 0
+    for idx, piece in enumerate(pieces):
+        consumed += len(piece)
+        if idx == len(pieces) - 1:
+            end = seg["end_time"]
+        else:
+            # 按字符占比在原时间段内线性分配时间戳
+            end = seg["start_time"] + int(span * consumed / total_chars)
+            end = min(max(end, cursor + 1), seg["end_time"])
+        out.append({**seg, "text": piece, "start_time": cursor, "end_time": end})
+        cursor = end
+
+    if any(o["end_time"] <= o["start_time"] for o in out):
+        return [seg]
+    return out
+
+
+def _resegment_japanese(utts: list) -> list:
+    merged = _merge_japanese_chunks(utts, _JA_MAX_MERGE_GAP_MS, _JA_MAX_MERGE_SPAN_MS)
+    result: list[dict] = []
+    for seg in merged:
+        result.extend(_split_japanese_sentences(seg))
+    return result
 
 
 def _start_pad(idx: int, utts: list, start_pad: int, end_pad: int, min_gap: int) -> int:
@@ -77,6 +154,9 @@ def fix_asr_sentences(asr_file: Path, session: Path,
     new_utts = _normalize(utterances)
     if not new_utts:
         raise RuntimeError("ASR result has no utterances.")
+
+    if language == "ja":
+        new_utts = _resegment_japanese(new_utts)
 
     padded = _apply_padding(new_utts, duration, start_pad, end_pad)
     payload = {

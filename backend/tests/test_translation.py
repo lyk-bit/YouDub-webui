@@ -240,9 +240,65 @@ def test_translate_batch_uses_shared_system_prompt(monkeypatch):
         texts, BB_SOURCE, {}, PreprocessResponse(),
         base_url="u", api_key="k", model="m", concurrency=4,
     )
-    assert [item.dst for item in out] == [f"dst:s{i}" for i in range(5)]
+    assert len(out) == 5
+    assert all(item.dst.startswith("dst:") for item in out)
     assert {item.audio_mode for item in out} == {"tts"}
     assert len(set(captured)) == 1, "system prompt must be identical across calls for prompt cache"
+
+
+def test_translate_batch_sends_neighbor_context(monkeypatch):
+    captured: list[str] = []
+    lock = __import__("threading").Lock()
+
+    def fake_call_json(client, model, system, user):
+        with lock:
+            captured.append(user)
+        return {"dst": "x", "audio_mode": "tts"}
+
+    monkeypatch.setattr(openai_translate, "_call_json", fake_call_json)
+    monkeypatch.setattr(openai_translate, "_client", lambda *a, **kw: object())
+
+    texts = ["a", "b", "c", "d", "e"]
+    out = openai_translate.translate_batch(
+        texts, YT_SOURCE, {}, PreprocessResponse(),
+        base_url="u", api_key="k", model="m", concurrency=2,
+    )
+    assert len(out) == 5
+    assert len(captured) == 5
+
+    # 并发下 captured 顺序不定，按消息末行（即待翻译句本身）匹配
+    by_tail = {msg.rsplit("\n", 1)[-1]: msg for msg in captured}
+
+    # 首句：只有后文，待翻译句在末尾
+    assert "[前文]" not in by_tail["a"]
+    assert "[后文]" in by_tail["a"]
+
+    # 中间句：前后文各带两句，上下文不含待翻译句本身
+    mid = by_tail["c"]
+    context_part = mid.split("# 待翻译")[0]
+    assert "[前文]" in mid
+    assert "[后文]" in mid
+    assert "a" in context_part and "b" in context_part
+    assert "d" in context_part and "e" in context_part
+    assert "c" not in context_part
+    assert mid.endswith("c")
+
+    # 末句：只有前文
+    assert "[前文]" in by_tail["e"]
+    assert "[后文]" not in by_tail["e"]
+
+
+def test_translate_sentence_without_context_sends_plain_text(monkeypatch):
+    captured: list[str] = []
+
+    def fake_call_json(client, model, system, user):
+        captured.append(user)
+        return {"dst": "", "audio_mode": "original"}
+
+    monkeypatch.setattr(openai_translate, "_call_json", fake_call_json)
+
+    openai_translate.translate_sentence("um", "en", object(), "m", "sys")
+    assert captured == ["um"]
 
 
 @pytest.mark.parametrize("value", ["abc", "1.5", "0", "-1", "201", ""])

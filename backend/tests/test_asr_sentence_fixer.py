@@ -83,3 +83,70 @@ def test_fix_asr_sentences_reuses_cache(tmp_path):
     second = asr_sentence_fixer.fix_asr_sentences(asr_file, session)
 
     assert json.loads(second.read_text(encoding="utf-8")) == {"already": True}
+
+
+def test_fix_asr_sentences_merges_incomplete_japanese_chunks(tmp_path):
+    utts = [_utt("今日はいい天気", 100, 1200), _utt("です。", 1250, 1800)]
+    asr_file, session = _write_asr(tmp_path, utts)
+
+    fixed = asr_sentence_fixer.fix_asr_sentences(
+        asr_file, session, start_pad=0, end_pad=0, language="ja"
+    )
+    out = json.loads(fixed.read_text(encoding="utf-8"))["result"]["utterances"]
+
+    assert [u["text"] for u in out] == ["今日はいい天気です。"]
+    assert out[0]["start_time"] == 100
+    assert out[0]["end_time"] == 1800
+
+
+def test_fix_asr_sentences_keeps_complete_japanese_chunks_separate(tmp_path):
+    utts = [_utt("行きましょう。", 100, 1200), _utt("楽しみですね。", 1300, 2400)]
+    asr_file, session = _write_asr(tmp_path, utts)
+
+    fixed = asr_sentence_fixer.fix_asr_sentences(
+        asr_file, session, start_pad=0, end_pad=0, language="ja"
+    )
+    out = json.loads(fixed.read_text(encoding="utf-8"))["result"]["utterances"]
+
+    assert [u["text"] for u in out] == ["行きましょう。", "楽しみですね。"]
+
+
+def test_fix_asr_sentences_does_not_merge_across_large_gap(tmp_path):
+    utts = [_utt("あの", 100, 500), _utt("新しいプロジェクト", 3000, 5000)]
+    asr_file, session = _write_asr(tmp_path, utts)
+
+    fixed = asr_sentence_fixer.fix_asr_sentences(
+        asr_file, session, start_pad=0, end_pad=0, language="ja"
+    )
+    out = json.loads(fixed.read_text(encoding="utf-8"))["result"]["utterances"]
+
+    assert [u["text"] for u in out] == ["あの", "新しいプロジェクト"]
+
+
+def test_fix_asr_sentences_splits_multiple_sentences_inside_japanese_chunk(tmp_path):
+    utts = [_utt("そうですか。わかりました。", 100, 2200)]
+    asr_file, session = _write_asr(tmp_path, utts)
+
+    fixed = asr_sentence_fixer.fix_asr_sentences(
+        asr_file, session, start_pad=0, end_pad=0, language="ja"
+    )
+    out = json.loads(fixed.read_text(encoding="utf-8"))["result"]["utterances"]
+
+    assert [u["text"] for u in out] == ["そうですか。", "わかりました。"]
+    assert out[0]["start_time"] == 100
+    assert out[1]["end_time"] == 2200
+    # 时间戳按字符占比切分：连续、单调递增且覆盖原区间
+    assert out[0]["end_time"] == out[1]["start_time"]
+    assert out[0]["start_time"] < out[0]["end_time"] < out[1]["end_time"]
+
+
+def test_fix_asr_sentences_keeps_english_utterances_unchanged(tmp_path):
+    utts = [_utt("Hello world", 100, 1200), _utt("how are you", 1300, 2400)]
+    asr_file, session = _write_asr(tmp_path, utts)
+
+    fixed = asr_sentence_fixer.fix_asr_sentences(
+        asr_file, session, start_pad=0, end_pad=0, language="en"
+    )
+    out = json.loads(fixed.read_text(encoding="utf-8"))["result"]["utterances"]
+
+    assert [u["text"] for u in out] == ["Hello world", "how are you"]
