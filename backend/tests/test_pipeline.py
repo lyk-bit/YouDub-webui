@@ -109,6 +109,106 @@ def test_subtitles_only_pipeline_skips_dubbing_stages(monkeypatch, tmp_path):
     assert all(stages[name]["progress"] == 100 for name in ("split_audio", "tts", "merge_audio"))
 
 
+def _fake_whisper_asr(monkeypatch, asr_file):
+    """注入伪 whisper_asr 模块，避免测试环境安装重型依赖。"""
+    fake = types.ModuleType("backend.app.adapters.whisper_asr")
+    fake.recognize_speech = lambda vocals, sess, language: asr_file
+    monkeypatch.setitem(sys.modules, "backend.app.adapters.whisper_asr", fake)
+
+
+def test_asr_stage_runs_diarization_and_reports_speakers(monkeypatch, tmp_path):
+    from backend.app.adapters import speaker_diarization
+
+    configure_db(monkeypatch, tmp_path)
+    task_id = database.create_task(
+        "https://www.youtube.com/watch?v=asrdiarize1",
+        task_id="asrdiarize1",
+    )
+    session = tmp_path / "session"
+    asr_file = session / "metadata" / "asr.json"
+    vocals_file = session / "media" / "audio_vocals.wav"
+    asr_file.parent.mkdir(parents=True)
+    vocals_file.parent.mkdir(parents=True)
+    asr_file.write_text(
+        json.dumps(
+            {
+                "audio_info": {"duration": 10000},
+                "result": {
+                    "text": "hello",
+                    "utterances": [{"text": "hello", "start_time": 0, "end_time": 1000, "words": []}],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    vocals_file.write_bytes(b"vocals")
+
+    runner = PipelineRunner(task_id)
+    runner.artifacts.session = session
+    runner.artifacts.vocals_file = vocals_file
+    _fake_whisper_asr(monkeypatch, asr_file)
+
+    calls: list = []
+
+    def fake_apply_diarization(asr, vocals):
+        calls.append((asr, vocals))
+        return "speaker diarization: 2 speakers detected"
+
+    monkeypatch.setattr(speaker_diarization, "apply_diarization", fake_apply_diarization)
+
+    runner._asr(database.get_task(task_id))
+
+    assert calls == [(asr_file, vocals_file)]
+    stage = {s["name"]: s for s in database.get_task(task_id)["stages"]}["asr"]
+    assert "2 speakers detected" in stage["last_message"]
+
+
+def test_asr_stage_skips_diarization_when_disabled(monkeypatch, tmp_path):
+    from backend.app.adapters import speaker_diarization
+
+    configure_db(monkeypatch, tmp_path)
+    task_id = database.create_task(
+        "https://www.youtube.com/watch?v=asrskipped1",
+        task_id="asrskipped1",
+    )
+    session = tmp_path / "session"
+    asr_file = session / "metadata" / "asr.json"
+    vocals_file = session / "media" / "audio_vocals.wav"
+    asr_file.parent.mkdir(parents=True)
+    vocals_file.parent.mkdir(parents=True)
+    asr_file.write_text(
+        json.dumps(
+            {
+                "audio_info": {"duration": 10000},
+                "result": {
+                    "text": "hello",
+                    "utterances": [{"text": "hello", "start_time": 0, "end_time": 1000, "words": []}],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    vocals_file.write_bytes(b"vocals")
+
+    runner = PipelineRunner(task_id)
+    runner.artifacts.session = session
+    runner.artifacts.vocals_file = vocals_file
+    _fake_whisper_asr(monkeypatch, asr_file)
+    monkeypatch.setenv("SPEAKER_DIARIZATION", "false")
+
+    def fail_apply_diarization(asr, vocals):
+        raise AssertionError("diarization must not run when disabled")
+
+    monkeypatch.setattr(speaker_diarization, "apply_diarization", fail_apply_diarization)
+
+    runner._asr(database.get_task(task_id))
+
+    stage = {s["name"]: s for s in database.get_task(task_id)["stages"]}["asr"]
+    assert "diarization" not in stage["last_message"]
+
+
 def test_tts_stage_passes_original_vocals_file(monkeypatch, tmp_path):
     from backend.app.adapters import voxcpm
 

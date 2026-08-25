@@ -342,17 +342,22 @@ class PipelineRunner:
             )
             return
 
+        from .adapters.speaker_diarization import apply_diarization, diarization_enabled
         from .adapters.whisper_asr import recognize_speech
 
         vocals_file = _require(self.artifacts.vocals_file, "vocals_file")
         source = detect_source(task["url"])
         self.artifacts.asr_file = recognize_speech(vocals_file, session, language=source.asr_language)
+        diarization_note = ""
+        if diarization_enabled():
+            self.stage_message("asr", "Recognized speech; running speaker diarization")
+            diarization_note = "; " + apply_diarization(self.artifacts.asr_file, vocals_file)
         data = _json.loads(self.artifacts.asr_file.read_text(encoding="utf-8"))
         utterances = data["result"]["utterances"]
         word_count = sum(len(u.get("words") or []) for u in utterances)
         self.stage_message(
             "asr",
-            f"Recognized {len(utterances)} segments / {word_count} words -> {self.artifacts.asr_file.name}",
+            f"Recognized {len(utterances)} segments / {word_count} words -> {self.artifacts.asr_file.name}{diarization_note}",
         )
 
     def _asr_fix(self, task: dict) -> None:
