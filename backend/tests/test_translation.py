@@ -301,6 +301,109 @@ def test_translate_sentence_without_context_sends_plain_text(monkeypatch):
     assert captured == ["um"]
 
 
+def test_translate_sentence_tags_speaker_without_context(monkeypatch):
+    captured: list[str] = []
+
+    def fake_call_json(client, model, system, user):
+        captured.append(user)
+        return {"dst": "x", "audio_mode": "tts"}
+
+    monkeypatch.setattr(openai_translate, "_call_json", fake_call_json)
+
+    openai_translate.translate_sentence("hello", "en", object(), "m", "sys", speaker="2")
+    assert captured == ["说话人2：hello"]
+
+
+def test_translate_batch_tags_current_and_context_with_speaker(monkeypatch):
+    captured: list[str] = []
+    lock = __import__("threading").Lock()
+
+    def fake_call_json(client, model, system, user):
+        with lock:
+            captured.append(user)
+        return {"dst": "x", "audio_mode": "tts"}
+
+    monkeypatch.setattr(openai_translate, "_call_json", fake_call_json)
+    monkeypatch.setattr(openai_translate, "_client", lambda *a, **kw: object())
+
+    out = openai_translate.translate_batch(
+        ["a", "b"], YT_SOURCE, {}, PreprocessResponse(),
+        base_url="u", api_key="k", model="m", speakers=["1", "2"],
+    )
+    assert len(out) == 2
+
+    by_last = {msg.rsplit("\n", 1)[-1]: msg for msg in captured}
+    first = by_last["说话人1：a"]
+    assert "[前文]" not in first
+    assert "说话人2：b" in first.split("# 待翻译")[0]
+
+    second = by_last["说话人2：b"]
+    assert "[后文]" not in second
+    assert "说话人1：a" in second.split("# 待翻译")[0]
+
+
+def test_translate_batch_without_speakers_keeps_messages_untagged(monkeypatch):
+    captured: list[str] = []
+
+    def fake_call_json(client, model, system, user):
+        captured.append(user)
+        return {"dst": "x", "audio_mode": "tts"}
+
+    monkeypatch.setattr(openai_translate, "_call_json", fake_call_json)
+    monkeypatch.setattr(openai_translate, "_client", lambda *a, **kw: object())
+
+    openai_translate.translate_batch(
+        ["a", "b"], YT_SOURCE, {}, PreprocessResponse(),
+        base_url="u", api_key="k", model="m", concurrency=1,
+    )
+    assert all("说话人" not in msg for msg in captured)
+
+
+def test_post_process_strips_leaked_speaker_prefix():
+    assert openai_translate._post_process("说话人1：你好", "zh") == "你好"
+    assert openai_translate._post_process("Speaker 2: hi", "en") == "Speaker 2: hi"
+
+
+def _write_asr_with_speakers(path, speakers: list[str]) -> None:
+    utterances = [
+        {
+            "text": f"S{i}.",
+            "start_time": i * 1000,
+            "end_time": (i + 1) * 1000,
+            "additions": {"speaker": speaker},
+        }
+        for i, speaker in enumerate(speakers)
+    ]
+    payload = {"result": {"utterances": utterances, "text": " ".join(u["text"] for u in utterances)}}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_translate_asr_passes_speakers_when_multiple(tmp_path, monkeypatch):
+    metadata = tmp_path / "metadata"
+    metadata.mkdir()
+    asr_file = metadata / "asr.json"
+    _write_asr_with_speakers(asr_file, ["1", "2", "1"])
+
+    _stub_preprocess(monkeypatch)
+    seen = _stub_translate_batch(monkeypatch, lambda t: f"zh:{t}")
+
+    openai_translate.translate_asr(asr_file, tmp_path, _settings(), YT_SOURCE)
+    assert seen[0]["speakers"] == ["1", "2", "1"]
+
+
+def test_translate_asr_suppresses_speakers_when_single(tmp_path, monkeypatch):
+    metadata = tmp_path / "metadata"
+    metadata.mkdir()
+    asr_file = metadata / "asr.json"
+    _write_asr_with_speakers(asr_file, ["1", "1"])
+
+    _stub_preprocess(monkeypatch)
+    seen = _stub_translate_batch(monkeypatch, lambda t: f"zh:{t}")
+
+    openai_translate.translate_asr(asr_file, tmp_path, _settings(), YT_SOURCE)
+    assert seen[0]["speakers"] is None
+
+
 @pytest.mark.parametrize("value", ["abc", "1.5", "0", "-1", "201", ""])
 def test_concurrency_from_bad_saved_values_falls_back_to_default(value):
     assert openai_translate._concurrency_from({"translate_concurrency": value}) == 50

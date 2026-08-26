@@ -77,6 +77,8 @@ def _client(base_url: str, api_key: str) -> OpenAI:
 
 
 _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
+# 翻译请求中说话人前缀「说话人N：」；译文里若被模型误带回则剥掉。
+_SPEAKER_PREFIX_RE = re.compile(r"^说话人\d+：")
 
 
 def _extract_json(raw: str) -> dict[str, Any]:
@@ -168,21 +170,31 @@ def _translate_system(source: SourceConfig, meta: dict[str, Any], pre: Preproces
 
 def _post_process(text: str, target_language: str) -> str:
     cleaned = text.strip()
+    cleaned = _SPEAKER_PREFIX_RE.sub("", cleaned)
     if target_language == "zh":
         cleaned = cleaned.replace("——", "，")
     return cleaned
 
 
-def _user_message(text: str, prev_sentences: list[str], next_sentences: list[str]) -> str:
-    """构造带邻句上下文的 user 消息；无上下文时直接返回原文。"""
+def _user_message(
+    text: str,
+    prev_sentences: list[str],
+    next_sentences: list[str],
+    speaker: str | None = None,
+) -> str:
+    """构造带邻句上下文的 user 消息；无上下文时直接返回原文。
+
+    多说话人时给待翻译句加「说话人N：」前缀，上下文由调用方预先打好前缀。
+    """
+    tag = f"说话人{speaker}：" if speaker else ""
     if not prev_sentences and not next_sentences:
-        return text
+        return f"{tag}{text}"
     lines = ["# 上下文（仅供参考，不要翻译，不要输出）"]
     if prev_sentences:
         lines.append("[前文]\n" + "\n".join(prev_sentences))
     if next_sentences:
         lines.append("[后文]\n" + "\n".join(next_sentences))
-    lines.append("# 待翻译（只翻译这一句）\n" + text)
+    lines.append("# 待翻译（只翻译这一句）\n" + tag + text)
     return "\n\n".join(lines)
 
 
@@ -194,9 +206,10 @@ def translate_sentence(
     system: str,
     prev_sentences: list[str] | None = None,
     next_sentences: list[str] | None = None,
+    speaker: str | None = None,
 ) -> TranslationItem:
     last_error: Exception | None = None
-    user = _user_message(text, prev_sentences or [], next_sentences or [])
+    user = _user_message(text, prev_sentences or [], next_sentences or [], speaker)
     for attempt in range(TRANSLATE_RETRY):
         try:
             data = _call_json(client, model, system, user)
@@ -218,6 +231,7 @@ def translate_batch(
     api_key: str,
     model: str,
     concurrency: int = DEFAULT_CONCURRENCY,
+    speakers: list[str] | None = None,
 ) -> list[TranslationItem]:
     if not texts:
         return []
@@ -225,6 +239,12 @@ def translate_batch(
     client = _client(base_url, api_key)
     log.info(
         "translate_batch: %d sentences, concurrency=%d", len(texts), concurrency,
+    )
+    # 多说话人时给每句（含上下文）带「说话人N：」前缀，帮助 LLM 理解对话人物关系。
+    tagged = (
+        [f"说话人{s}：{t}" for s, t in zip(speakers, texts)]
+        if speakers
+        else texts
     )
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
         futures = [
@@ -235,8 +255,9 @@ def translate_batch(
                 client,
                 model,
                 system,
-                texts[max(0, idx - CONTEXT_WINDOW):idx],
-                texts[idx + 1:idx + 1 + CONTEXT_WINDOW],
+                tagged[max(0, idx - CONTEXT_WINDOW):idx],
+                tagged[idx + 1:idx + 1 + CONTEXT_WINDOW],
+                speakers[idx] if speakers else None,
             )
             for idx, text in enumerate(texts)
         ]
@@ -305,6 +326,10 @@ def translate_asr(
     data = json.loads(asr_file.read_text(encoding="utf-8"))
     utterances = data["result"]["utterances"]
     texts = [u["text"].strip() for u in utterances]
+    speakers = [_speaker(u) for u in utterances]
+    # 仅多说话人时标注；单一说话人加前缀只是噪声。
+    if len(set(speakers)) <= 1:
+        speakers = None
     full_text = _full_text(data, texts)
     meta = _read_meta(session)
 
@@ -317,7 +342,8 @@ def translate_asr(
     else:
         log.info("Reusing translation preprocess artifact from %s", preprocess_artifact_path(session))
     translated_items = translate_batch(
-        texts, source, meta, pre, **api, concurrency=_concurrency_from(settings)
+        texts, source, meta, pre, **api,
+        concurrency=_concurrency_from(settings), speakers=speakers,
     )
 
     translation = [

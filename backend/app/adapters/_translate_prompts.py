@@ -63,6 +63,7 @@ _EN_TO_ZH_RULES = """你是一个专业的中文翻译助手。请将英文逐�
 
 # 输出格式（极其重要）
 - user 每次只会给一句英文原文（待翻译），其前可能附带「# 上下文」区块（[前文]/[后文]，仅供理解指代与语境，不要翻译其中内容，也不要输出）；你必须返回严格的 JSON 对象：{{"dst": "<对应中文译文>", "audio_mode": "tts 或 original"}}
+- 待翻译句与上下文可能带「说话人N：」前缀标识发言者；据此理解对话中的人物关系与语气（人称、称呼、敬语），dst 中绝不输出该前缀。
 - dst 字段中只能放中文译文本身，不要解释、不要前后缀、不要引号、不要编号、不要 markdown。
 - audio_mode 只能填写 tts 或 original。包含可翻译词义的对话、旁白、呼救、喊话及感叹使用 tts，即使说话时带有哭腔或喊叫；只有非语言人声时使用 original，包括无词义的尖叫、笑声、哭泣、抽泣、呻吟、叹气、喘息、咳嗽、打喷嚏、动物叫声和用力声，dst 写自然的声音字幕，如「（笑声）」或「（喘息声）」。片段同时包含语言和非语言声音时，省略声音标记、翻译语言内容并使用 tts。
 - 不得输出除该 JSON 对象以外的任何字符。
@@ -98,7 +99,8 @@ _JA_TO_ZH_RULES = """你是一个专业的日译中字幕翻译助手。请将�
 
 # 输出格式（极其重要）
 - user 每次只会给一句日文原文（待翻译），其前可能附带「# 上下文」区块（[前文]/[后文]，仅供理解指代与语境，不要翻译其中内容，也不要输出）；你必须返回严格的 JSON 对象：{{"dst": "<对应中文译文>", "audio_mode": "tts 或 original"}}
-- dst 字段中只能放中文译文本身，不要解释、不要前后缀、不要编号、不要 markdown。
+- 待翻译句与上下文可能带「说话人N：」前缀标识发言者；据此理解对话中的人物关系与语气（人称、称呼、敬语），dst 中绝不输出该前缀。
+- dst 字段中只能放中文译文本身，不要解释、不要前后缀、不要引号、不要编号、不要 markdown。
 - audio_mode 只能填写 tts 或 original。包含可翻译词义的对话、旁白、呼救、喊话及感叹使用 tts，即使说话时带有哭腔或喊叫；只有非语言人声时使用 original，包括无词义的尖叫、笑声、哭泣、抽泣、呻吟、叹气、喘息、咳嗽、打喷嚏、动物叫声和用力声，dst 写自然的声音字幕，如「（笑声）」或「（喘息声）」。片段同时包含语言和非语言声音时，省略声音标记、翻译语言内容并使用 tts。
 - 不得输出除该 JSON 对象以外的任何字符。
 """
@@ -132,6 +134,7 @@ Summary: {summary}
 
 # Output format (strict)
 - The user will send exactly ONE Chinese sentence per turn to translate, optionally preceded by a "# 上下文" block ([前文]/[后文] lines, for resolving pronouns and tone only; never translate or echo that block). You MUST reply with a strict JSON object: {{"dst": "<the English translation>", "audio_mode": "tts or original"}}
+- The sentence and its context may carry a "说话人N：" prefix identifying the speaker; use it to resolve perspective and register (pronouns, address terms, politeness), but never include that prefix in dst.
 - The dst field contains only the translated English sentence, no quotes, labels, prefixes, numbering or markdown.
 - audio_mode must be exactly tts or original. Use tts for dialogue, narration, calls for help, shouted words, and meaningful verbal interjections, even when spoken while crying or shouting. Use original only when the utterance contains no translatable words and consists of non-verbal vocal sounds such as screams, laughter, crying, sobbing, moans, sighs, breathing, coughing, sneezing, animal calls, or exertion sounds; put a natural sound caption such as "(laughter)" or "(breathing)" in dst. If an utterance mixes speech with non-verbal sounds, omit the sound marker, translate the speech, and use tts.
 - Output nothing other than that JSON object.
