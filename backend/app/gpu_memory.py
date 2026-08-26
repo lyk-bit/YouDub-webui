@@ -36,9 +36,13 @@ def release_stage_memory(stage: str) -> None:
         return
 
     if stage == "asr":
-        module = sys.modules.get("backend.app.adapters.whisper_asr")
-        release_model = getattr(module, "release_model", None)
-        _call_safely(release_model)
+        for module_name in (
+            "backend.app.adapters.whisper_asr",
+            "backend.app.adapters.speaker_diarization",
+        ):
+            module = sys.modules.get(module_name)
+            release_model = getattr(module, "release_model", None)
+            _call_safely(release_model)
     elif stage == "tts":
         module = sys.modules.get("backend.app.adapters.voxcpm")
         release_model = getattr(module, "release_model", None)
@@ -54,6 +58,7 @@ def release_task_memory() -> None:
 
     for module_name in (
         "backend.app.adapters.whisper_asr",
+        "backend.app.adapters.speaker_diarization",
         "backend.app.adapters.voxcpm",
     ):
         module = sys.modules.get(module_name)

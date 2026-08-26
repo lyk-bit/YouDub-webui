@@ -42,6 +42,9 @@ def _merge_japanese_chunks(utts: list, max_gap_ms: int, max_span_ms: int) -> lis
             if not _ja_complete(prev["text"]) and gap <= max_gap_ms and span <= max_span_ms:
                 prev["text"] += utt["text"]
                 prev["end_time"] = utt["end_time"]
+                # 说话人元数据取首段；首段没有时沿用后段的
+                if "additions" not in prev and "additions" in utt:
+                    prev["additions"] = utt["additions"]
                 continue
         merged.append(dict(utt))
     return merged
@@ -134,10 +137,18 @@ def _apply_padding(utts: list, duration: int, start_pad: int, end_pad: int) -> l
 
 
 def _normalize(utterances: list) -> list:
-    return [
-        {"text": u["text"].strip(), "start_time": u["start_time"], "end_time": u["end_time"]}
-        for u in utterances if u.get("text", "").strip()
-    ]
+    normalized = []
+    for u in utterances:
+        text = u.get("text", "").strip()
+        if not text:
+            continue
+        item = {"text": text, "start_time": u["start_time"], "end_time": u["end_time"]}
+        # 保留说话人等附加元数据，供翻译与 TTS 按人区分
+        additions = u.get("additions")
+        if isinstance(additions, dict):
+            item["additions"] = dict(additions)
+        normalized.append(item)
+    return normalized
 
 
 def fix_asr_sentences(asr_file: Path, session: Path,

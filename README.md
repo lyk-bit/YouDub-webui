@@ -254,6 +254,9 @@ macOS / Linux / WSL2：
 | `DEMUCS_DEVICE` / `WHISPER_DEVICE` | 可选组件级设备覆盖；留空时使用 `DEVICE`。Whisper 选择 MPS 时会退回 CPU，因为词级时间戳对齐依赖 MPS 不支持的 float64 DTW。 |
 | `KOTOBA_WHISPER_MODEL` | 日语识别（日译中任务）使用的 Kotoba-Whisper Hugging Face 模型，默认 `kotoba-tech/kotoba-whisper-v2.0`；模型经 transformers 加载并缓存到 `MODEL_CACHE_DIR/huggingface`。设为 `off`（或 `none`/`0`）则日语回退到 `WHISPER_MODEL` 的 openai-whisper。首次下载约 3 GiB，直连 Hugging Face 较慢时可在 `.env` 中设置 `HF_ENDPOINT=https://hf-mirror.com`。 |
 | `KOTOBA_WHISPER_BATCH_SIZE` | Kotoba-Whisper 长音频分块推理批大小，默认 `16`；显存不足时调小。 |
+| `SPEAKER_DIARIZATION` | 是否在 ASR 后做说话人分离，默认 `true`。识别出的说话人会写入每句的 `speaker` 字段，翻译与 VoxCPM 合成按说话人区分音色；关闭后所有句子归为说话人 `1`。 |
+| `DIARIZATION_MODEL` | 说话人分离使用的 Hugging Face 模型，默认 `pyannote/speaker-diarization-3.1`。 |
+| `PYANNOTE_HF_TOKEN` | pyannote 模型的 Hugging Face 访问令牌。默认模型是 gated 仓库，需先在 [模型页](https://huggingface.co/pyannote/speaker-diarization-3.1) 接受使用条款再填入令牌；未配置令牌（也未设置 `HF_ENDPOINT` 镜像）时说话人分离自动跳过，不影响任务。 |
 | `DEMUCS_CHUNK_SECONDS` | 人声分离的分块长度，默认 `600`（10 分钟）。Demucs 的内存占用与分块长度成正比而与视频总长无关，约 **0.28 GiB / 分钟**（含模型包与 shifts 的多份副本）。16 GB 内存建议保持默认；内存紧张可调小，内存充裕可调大以减少分块接缝。 |
 | `OPENAI_BASE_URL` | OpenAI 兼容 API 地址，例如 `https://api.openai.com/v1`。 |
 | `OPENAI_API_KEY` | 翻译阶段使用的 API key。 |

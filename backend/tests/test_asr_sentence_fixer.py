@@ -85,6 +85,65 @@ def test_fix_asr_sentences_reuses_cache(tmp_path):
     assert json.loads(second.read_text(encoding="utf-8")) == {"already": True}
 
 
+def test_fix_asr_sentences_preserves_speaker(tmp_path):
+    utts = [
+        {"text": "Hello.", "start_time": 100, "end_time": 1200,
+         "additions": {"speaker": "2"}},
+        {"text": "World.", "start_time": 1500, "end_time": 2800},
+    ]
+    asr_file, session = _write_asr(tmp_path, utts)
+
+    fixed = asr_sentence_fixer.fix_asr_sentences(asr_file, session)
+    out = json.loads(fixed.read_text(encoding="utf-8"))["result"]["utterances"]
+
+    assert out[0]["additions"]["speaker"] == "2"
+    assert "additions" not in out[1]
+
+
+def test_fix_asr_sentences_japanese_merge_keeps_first_speaker(tmp_path):
+    utts = [
+        {"text": "今日はいい天気", "start_time": 100, "end_time": 1200,
+         "additions": {"speaker": "1"}},
+        {"text": "です。", "start_time": 1250, "end_time": 1800,
+         "additions": {"speaker": "2"}},
+    ]
+    asr_file, session = _write_asr(tmp_path, utts)
+
+    fixed = asr_sentence_fixer.fix_asr_sentences(asr_file, session, language="ja")
+    out = json.loads(fixed.read_text(encoding="utf-8"))["result"]["utterances"]
+
+    assert [u["text"] for u in out] == ["今日はいい天気です。"]
+    assert out[0]["additions"]["speaker"] == "1"
+
+
+def test_fix_asr_sentences_japanese_merge_inherits_later_speaker(tmp_path):
+    utts = [
+        {"text": "今日はいい天気", "start_time": 100, "end_time": 1200},
+        {"text": "です。", "start_time": 1250, "end_time": 1800,
+         "additions": {"speaker": "3"}},
+    ]
+    asr_file, session = _write_asr(tmp_path, utts)
+
+    fixed = asr_sentence_fixer.fix_asr_sentences(asr_file, session, language="ja")
+    out = json.loads(fixed.read_text(encoding="utf-8"))["result"]["utterances"]
+
+    assert out[0]["additions"]["speaker"] == "3"
+
+
+def test_fix_asr_sentences_japanese_split_inherits_speaker(tmp_path):
+    utts = [
+        {"text": "そうですか。わかりました。", "start_time": 100, "end_time": 2200,
+         "additions": {"speaker": "2"}},
+    ]
+    asr_file, session = _write_asr(tmp_path, utts)
+
+    fixed = asr_sentence_fixer.fix_asr_sentences(asr_file, session, language="ja")
+    out = json.loads(fixed.read_text(encoding="utf-8"))["result"]["utterances"]
+
+    assert [u["text"] for u in out] == ["そうですか。", "わかりました。"]
+    assert [u["additions"]["speaker"] for u in out] == ["2", "2"]
+
+
 def test_fix_asr_sentences_merges_incomplete_japanese_chunks(tmp_path):
     utts = [_utt("今日はいい天気", 100, 1200), _utt("です。", 1250, 1800)]
     asr_file, session = _write_asr(tmp_path, utts)
