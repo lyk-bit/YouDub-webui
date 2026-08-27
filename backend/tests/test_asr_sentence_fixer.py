@@ -100,7 +100,7 @@ def test_fix_asr_sentences_preserves_speaker(tmp_path):
     assert "additions" not in out[1]
 
 
-def test_fix_asr_sentences_japanese_merge_keeps_first_speaker(tmp_path):
+def test_fix_asr_sentences_japanese_does_not_merge_across_speakers(tmp_path):
     utts = [
         {"text": "今日はいい天気", "start_time": 100, "end_time": 1200,
          "additions": {"speaker": "1"}},
@@ -112,8 +112,24 @@ def test_fix_asr_sentences_japanese_merge_keeps_first_speaker(tmp_path):
     fixed = asr_sentence_fixer.fix_asr_sentences(asr_file, session, language="ja")
     out = json.loads(fixed.read_text(encoding="utf-8"))["result"]["utterances"]
 
+    assert [u["text"] for u in out] == ["今日はいい天気", "です。"]
+    assert [u["additions"]["speaker"] for u in out] == ["1", "2"]
+
+
+def test_fix_asr_sentences_japanese_merge_keeps_speaker_of_first(tmp_path):
+    utts = [
+        {"text": "今日はいい天気", "start_time": 100, "end_time": 1200,
+         "additions": {"speaker": "4"}},
+        {"text": "です。", "start_time": 1250, "end_time": 1800,
+         "additions": {"speaker": "4"}},
+    ]
+    asr_file, session = _write_asr(tmp_path, utts)
+
+    fixed = asr_sentence_fixer.fix_asr_sentences(asr_file, session, language="ja")
+    out = json.loads(fixed.read_text(encoding="utf-8"))["result"]["utterances"]
+
     assert [u["text"] for u in out] == ["今日はいい天気です。"]
-    assert out[0]["additions"]["speaker"] == "1"
+    assert out[0]["additions"]["speaker"] == "4"
 
 
 def test_fix_asr_sentences_japanese_merge_inherits_later_speaker(tmp_path):
@@ -209,3 +225,46 @@ def test_fix_asr_sentences_keeps_english_utterances_unchanged(tmp_path):
     out = json.loads(fixed.read_text(encoding="utf-8"))["result"]["utterances"]
 
     assert [u["text"] for u in out] == ["Hello world", "how are you"]
+
+
+def test_fix_asr_sentences_japanese_no_split_before_closing_quote(tmp_path):
+    utts = [_utt("「え？」彼女は驚いた。", 100, 2100)]
+    asr_file, session = _write_asr(tmp_path, utts)
+
+    fixed = asr_sentence_fixer.fix_asr_sentences(
+        asr_file, session, start_pad=0, end_pad=0, language="ja"
+    )
+    out = json.loads(fixed.read_text(encoding="utf-8"))["result"]["utterances"]
+
+    # 闭引号不成为下一片段的开头；引号句与后续叙述合并为一条，避免出现「」起始残片
+    assert [u["text"] for u in out] == ["「え？」彼女は驚いた。"]
+
+
+def test_fix_asr_sentences_japanese_keeps_quoted_narration_whole(tmp_path):
+    utts = [_utt("彼は「これはペンです。きれいでしょう」と言った。", 100, 4100)]
+    asr_file, session = _write_asr(tmp_path, utts)
+
+    fixed = asr_sentence_fixer.fix_asr_sentences(
+        asr_file, session, start_pad=0, end_pad=0, language="ja"
+    )
+    out = json.loads(fixed.read_text(encoding="utf-8"))["result"]["utterances"]
+
+    # 引号内部的句号不是句子边界
+    assert [u["text"] for u in out] == ["彼は「これはペンです。きれいでしょう」と言った。"]
+
+
+def test_fix_asr_sentences_japanese_connective_sa_keeps_merging(tmp_path):
+    utts = [
+        _utt("あのさ", 100, 600),
+        _utt("昨日行ったよね", 700, 1300),
+        _utt("次は山に行く。", 1400, 2200),
+    ]
+    asr_file, session = _write_asr(tmp_path, utts)
+
+    fixed = asr_sentence_fixer.fix_asr_sentences(
+        asr_file, session, start_pad=0, end_pad=0, language="ja"
+    )
+    out = json.loads(fixed.read_text(encoding="utf-8"))["result"]["utterances"]
+
+    # 接续用法的 さ 不再判定为完结，前两段并句；ね 收尾仍视为完整句，第三段独立
+    assert [u["text"] for u in out] == ["あのさ昨日行ったよね", "次は山に行く。"]

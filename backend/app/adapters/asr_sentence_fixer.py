@@ -20,15 +20,65 @@ _JA_COMPLETE_RE = re.compile(
     r"|た(?:の?だ|ん|よ|ね|な)?$"
     r"|(?:ない|たい|られる|させる|せる|れる)$"
     r"|[うくぐすつぬぶむるい]$"
-    r"|[かよねなわぞさも]$"
+    # 终助词不收 さ/も：口语里它们多为接续、强调用法（あのさ、それでさ、それでも），
+    # 按完结处理会让后续话语失去并句机会。
+    r"|[かよねなわぞ]$"
 )
-
-# 句末标点后的零宽切分点；后瞻确保连续标点（如「？！」）不被拆开。
-_JA_SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？!?…])(?=[^。！？!?…])")
 
 
 def _ja_complete(text: str) -> bool:
     return bool(_JA_COMPLETE_RE.search(text))
+
+
+def _speaker_of(utt: dict) -> str | None:
+    additions = utt.get("additions")
+    if isinstance(additions, dict):
+        value = additions.get("speaker")
+        if value is not None and str(value).strip():
+            return str(value)
+    return None
+
+
+def _same_speaker(prev: dict, utt: dict) -> bool:
+    # 任一段缺说话人标注时放行合并（沿用已有标签）；双方都有且不同则视为对话交接，不合。
+    prev_speaker, next_speaker = _speaker_of(prev), _speaker_of(utt)
+    return prev_speaker is None or next_speaker is None or prev_speaker == next_speaker
+
+
+# 句末标点；其后位置为潜在句子边界。半角 ! ? 与全角同权。
+_JA_TERMINALS = set("。．！？!?…")
+# 引号与括号配对期间内部标点不算边界，闭括号始终跟随前句。
+_JA_OPEN_BRACKETS = set("「『（《〈【〔(")
+_JA_CLOSE_BRACKETS = set("」』）》〉】〕)")
+
+
+def _ja_sentence_pieces(text: str) -> list[str]:
+    pieces: list[str] = []
+    start = 0
+    depth = 0
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch in _JA_OPEN_BRACKETS:
+            depth += 1
+            i += 1
+        elif ch in _JA_CLOSE_BRACKETS:
+            depth = max(depth - 1, 0)
+            i += 1
+        elif ch in _JA_TERMINALS and depth == 0:
+            j = i + 1
+            while j < len(text) and text[j] in _JA_TERMINALS:
+                j += 1
+            # 下一个字符是闭括号时不切，把闭括号留给前句；连续标点整段跳过。
+            if j < len(text) and text[j] not in _JA_CLOSE_BRACKETS:
+                pieces.append(text[start:j])
+                start = j
+            i = j
+        else:
+            i += 1
+    if start < len(text):
+        pieces.append(text[start:])
+    return pieces
 
 
 def _merge_japanese_chunks(utts: list, max_gap_ms: int, max_span_ms: int) -> list:
@@ -38,8 +88,14 @@ def _merge_japanese_chunks(utts: list, max_gap_ms: int, max_span_ms: int) -> lis
             prev = merged[-1]
             gap = utt["start_time"] - prev["end_time"]
             span = utt["end_time"] - prev["start_time"]
-            # 前一段以未完结形态收尾（如名词、助词、て形结尾）且时间上连续，则并入
-            if not _ja_complete(prev["text"]) and gap <= max_gap_ms and span <= max_span_ms:
+            # 前一段以未完结形态收尾（如名词、助词、て形结尾）且时间上连续则并入；
+            # 说话人不同视为对话交接，不并，避免把插话并进别人的话轮。
+            if (
+                not _ja_complete(prev["text"])
+                and _same_speaker(prev, utt)
+                and gap <= max_gap_ms
+                and span <= max_span_ms
+            ):
                 prev["text"] += utt["text"]
                 prev["end_time"] = utt["end_time"]
                 # 说话人元数据取首段；首段没有时沿用后段的
@@ -51,7 +107,7 @@ def _merge_japanese_chunks(utts: list, max_gap_ms: int, max_span_ms: int) -> lis
 
 
 def _split_japanese_sentences(seg: dict) -> list:
-    pieces = [p for p in _JA_SENTENCE_SPLIT_RE.split(seg["text"]) if p]
+    pieces = _ja_sentence_pieces(seg["text"])
     if len(pieces) <= 1:
         return [seg]
 

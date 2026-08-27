@@ -174,6 +174,27 @@ def test_translate_asr_passes_meta_and_full_text_to_preprocess(tmp_path, monkeyp
     assert seen[0]["meta"] == {"title": "T", "uploader": "U", "description": "D"}
 
 
+def test_translate_asr_falls_back_to_joined_full_text_for_japanese(tmp_path, monkeypatch):
+    metadata = tmp_path / "metadata"
+    metadata.mkdir()
+    asr_file = metadata / "asr_fixed.json"
+    # 转录整段文本缺失时，日文按无空格书写习惯拼接句子
+    utterances = [
+        {"text": "今日は", "start_time": 0, "end_time": 1000},
+        {"text": "いい天気です。", "start_time": 1000, "end_time": 2000},
+    ]
+    asr_file.write_text(
+        json.dumps({"result": {"utterances": utterances, "text": ""}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    seen = _stub_preprocess(monkeypatch)
+    _stub_translate_batch(monkeypatch, lambda t: t)
+
+    openai_translate.translate_asr(asr_file, tmp_path, _settings(), JA_SOURCE)
+    assert seen[0]["full_text"] == "今日はいい天気です。"
+
+
 def test_translate_asr_invokes_translate_batch_with_all_texts_at_once(tmp_path, monkeypatch):
     metadata = tmp_path / "metadata"
     metadata.mkdir()

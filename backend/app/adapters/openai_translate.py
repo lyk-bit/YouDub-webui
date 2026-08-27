@@ -278,11 +278,16 @@ def _speaker(utt: dict[str, Any]) -> str:
     return "1"
 
 
-def _full_text(data: dict[str, Any], texts: list[str]) -> str:
+# 无空格书写的语言：转录兜底拼接时不插空格，避免预处理输入出现多余分隔。
+_CJK_JOIN_LANGUAGES = {"ja", "zh"}
+
+
+def _full_text(data: dict[str, Any], texts: list[str], language: str) -> str:
     raw = data.get("result", {}).get("text") or ""
     if raw.strip():
         return raw
-    return " ".join(texts)
+    sep = "" if language in _CJK_JOIN_LANGUAGES else " "
+    return sep.join(texts)
 
 
 def preprocess_artifact_path(session: Path) -> Path:
@@ -330,7 +335,7 @@ def translate_asr(
     # 仅多说话人时标注；单一说话人加前缀只是噪声。
     if len(set(speakers)) <= 1:
         speakers = None
-    full_text = _full_text(data, texts)
+    full_text = _full_text(data, texts, source.asr_language)
     meta = _read_meta(session)
 
     api = {key: settings[key] for key in API_SETTING_KEYS if key in settings}
