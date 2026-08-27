@@ -388,11 +388,24 @@ class PipelineRunner:
         asr_file = _require(self.artifacts.asr_file, "asr_file")
         before = len(_json.loads(asr_file.read_text(encoding="utf-8"))["result"]["utterances"])
         source = detect_source(task["url"])
-        self.artifacts.asr_fixed_file = fix_asr_sentences(asr_file, session, language=source.asr_language)
-        sentences = _json.loads(self.artifacts.asr_fixed_file.read_text(encoding="utf-8"))["result"]["utterances"]
+        self.artifacts.asr_fixed_file = fix_asr_sentences(
+            asr_file,
+            session,
+            language=source.asr_language,
+            vocals_file=self.artifacts.vocals_file,
+        )
+        fixed_data = _json.loads(self.artifacts.asr_fixed_file.read_text(encoding="utf-8"))
+        sentences = fixed_data["result"]["utterances"]
+        vad = fixed_data.get("vad") or {}
+        vad_note = ""
+        if vad.get("applied"):
+            vad_note = (
+                f" (VAD: {vad.get('speech_intervals', 0)} speech intervals, "
+                f"{vad.get('dropped', 0)} utterances dropped)"
+            )
         self.stage_message(
             "asr_fix",
-            f"Re-segmented {before} -> {len(sentences)} sentences -> {self.artifacts.asr_fixed_file.name}",
+            f"Re-segmented {before} -> {len(sentences)} sentences{vad_note} -> {self.artifacts.asr_fixed_file.name}",
         )
 
     def _translate(self, task: dict) -> None:

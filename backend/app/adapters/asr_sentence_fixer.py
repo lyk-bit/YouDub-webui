@@ -209,7 +209,8 @@ def _normalize(utterances: list) -> list:
 
 def fix_asr_sentences(asr_file: Path, session: Path,
                      start_pad: int = 100, end_pad: int = 300,
-                     language: str = "en") -> Path:
+                     language: str = "en",
+                     vocals_file: Path | None = None) -> Path:
     output_file = session / "metadata" / "asr_fixed.json"
     if output_file.exists():
         return output_file
@@ -225,10 +226,29 @@ def fix_asr_sentences(asr_file: Path, session: Path,
     if language == "ja":
         new_utts = _resegment_japanese(new_utts)
 
+    # ASR（尤其 Kotoba-Whisper 的连续 chunk 时间戳）会把静音与非语言人声
+    # （呻吟、喘息等）吞进相邻句子的时间段。用 VAD 语音区间收缩时间戳，
+    # 让这些区间重新暴露为句间间隙，交给 merge_audio 的原声回填保留。
+    vad_report = None
+    if vocals_file is not None:
+        from .vad import clamp_utterances_to_speech, speech_intervals
+
+        speech = speech_intervals(Path(vocals_file))
+        if speech:
+            new_utts, dropped = clamp_utterances_to_speech(new_utts, speech)
+            vad_report = {
+                "applied": True,
+                "speech_intervals": len(speech),
+                "dropped": dropped,
+            }
+        else:
+            vad_report = {"applied": False, "reason": "unavailable"}
+
     padded = _apply_padding(new_utts, duration, start_pad, end_pad)
     payload = {
         "audio_info": data.get("audio_info", {}),
         "result": {"text": data["result"].get("text", ""), "utterances": padded},
+        "vad": vad_report,
     }
     output_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return output_file

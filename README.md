@@ -254,6 +254,7 @@ macOS / Linux / WSL2：
 | `DEMUCS_DEVICE` / `WHISPER_DEVICE` | 可选组件级设备覆盖；留空时使用 `DEVICE`。Whisper 选择 MPS 时会退回 CPU，因为词级时间戳对齐依赖 MPS 不支持的 float64 DTW。 |
 | `KOTOBA_WHISPER_MODEL` | 日语识别（日译中任务）使用的 Kotoba-Whisper Hugging Face 模型，默认 `kotoba-tech/kotoba-whisper-v2.0`；模型经 transformers 加载并缓存到 `MODEL_CACHE_DIR/huggingface`。设为 `off`（或 `none`/`0`）则日语回退到 `WHISPER_MODEL` 的 openai-whisper。首次下载约 3 GiB，直连 Hugging Face 较慢时可在 `.env` 中设置 `HF_ENDPOINT=https://hf-mirror.com`。 |
 | `KOTOBA_WHISPER_BATCH_SIZE` | Kotoba-Whisper 长音频分块推理批大小，默认 `16`；显存不足时调小。 |
+| `VAD_ENABLED` / `VAD_THRESHOLD` / `VAD_MIN_SPEECH_MS` / `VAD_MIN_SILENCE_MS` | 分句修正阶段的 silero-vad 语音活动检测：用真实语音区间收缩 ASR 句子时间戳，把静音与无词义人声（呻吟、喘息等）重新暴露为句间间隙，再由配音合并阶段回填原声（Kotoba-Whisper 的连续时间戳会把这些区间吞进相邻句子）。`VAD_ENABLED` 默认开启，设 `off` 等值关闭；`VAD_THRESHOLD` 语音概率阈值默认 `0.5`，调高可让更多非语言人声落入回填区间（过高可能丢软语音）；`VAD_MIN_SPEECH_MS` / `VAD_MIN_SILENCE_MS` 为最短语音/静音时长，默认 `250` / `100`。silero-vad 未安装或加载失败时自动跳过，不影响任务。 |
 | `SPEAKER_DIARIZATION` | 是否在 ASR 后做说话人分离，默认 `true`。识别出的说话人会写入每句的 `speaker` 字段：翻译请求对多说话人视频自动附带「说话人N：」标注（帮助 LLM 判断人称、称呼与语气），VoxCPM 合成按说话人区分音色；关闭后所有句子归为说话人 `1`。 |
 | `DIARIZATION_MODEL` | 说话人分离使用的 Hugging Face 模型，默认 `pyannote/speaker-diarization-3.1`。 |
 | `PYANNOTE_HF_TOKEN` | pyannote 模型的 Hugging Face 访问令牌。默认模型是 gated 仓库，需先在 [模型页](https://huggingface.co/pyannote/speaker-diarization-3.1) 接受使用条款再填入令牌；未配置令牌（也未设置 `HF_ENDPOINT` 镜像）时说话人分离自动跳过，不影响任务。 |
